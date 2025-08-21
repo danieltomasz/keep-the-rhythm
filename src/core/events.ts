@@ -312,10 +312,44 @@ export async function handleFileDelete(file: TFile) {
 
 /**
  * @function handleFileCreate
- * - Add file to FileStats table?
+ * When a new file is created, check if it has content and track it
  */
-export function handleFileCreate(file: TFile) {}
+export async function handleFileCreate(file: TFile) {
+	if (!file || (file.extension !== "md" && file.extension !== "qmd")) {
+		return;
+	}
 
+	// Small delay to let the file content be written
+	setTimeout(async () => {
+		try {
+			const content = await state.plugin.app.vault.read(file);
+			const wordCount = getLanguageBasedWordCount(
+				content,
+				state.plugin.data.settings.enabledLanguages,
+			);
+			
+			// If the new file has significant content, track it as today's activity
+			if (wordCount > 0) {
+				const entry: DailyActivity = {
+					date: state.today,
+					filePath: file.path,
+					wordCountStart: 0, // Start from 0 since this content is "new" for today
+					charCountStart: 0,
+					changes: [{
+						timeKey: floorMomentToFive(moment()).format("HH:mm"),
+						w: wordCount,
+						c: content.length,
+					}],
+				};
+
+				await db.dailyActivity.add(entry);
+				state.emit(EVENTS.REFRESH_EVERYTHING);
+			}
+		} catch (error) {
+			// File might not be ready yet, ignore
+		}
+	}, 100); // 100ms delay
+}
 /**
  * @function handleFileRename
  * Update all references to this file to match new filepath
